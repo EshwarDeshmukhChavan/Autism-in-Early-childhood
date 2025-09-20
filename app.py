@@ -16,153 +16,170 @@ st.set_page_config(
 )
 
 # ==================================
-# Constants & Model Loading
+# Constants & Model Directory
 # ==================================
 MODEL_DIR = "models"
-AUDIO_MODEL_PATH = os.path.join(MODEL_DIR, "rnn_model_final.h5")
-IMAGE_MODEL_PATH = os.path.join(MODEL_DIR, "image_model_final.keras")
-CSV_MODEL_PATH = os.path.join(MODEL_DIR, "mlp_model_final.h5")
 
+# ==================================
+# Load Models Dynamically
+# ==================================
 @st.cache_resource
 def load_models():
-    """Load all models once and cache."""
     models = {}
-    try:
-        models['audio_model'] = tf.keras.models.load_model(AUDIO_MODEL_PATH)
-        models['image_model'] = tf.keras.models.load_model(IMAGE_MODEL_PATH)
-        models['csv_model'] = tf.keras.models.load_model(CSV_MODEL_PATH)
-    except Exception as e:
-        st.error(f"Error loading models: {e}")
-        return None
+    if not os.path.exists(MODEL_DIR):
+        st.error(f"Model directory '{MODEL_DIR}' not found.")
+        return models
+
+    for f in os.listdir(MODEL_DIR):
+        if f.endswith((".h5", ".keras")):
+            model_name = os.path.splitext(f)[0].lower()  # name in lowercase
+            try:
+                models[model_name] = tf.keras.models.load_model(os.path.join(MODEL_DIR, f))
+            except Exception as e:
+                st.error(f"Error loading model {f}: {e}")
     return models
 
 with st.spinner("Loading AI models..."):
     models = load_models()
-    if not models:
-        st.stop()
+
+if not models:
+    st.stop()
 
 # ==================================
 # Sidebar UI
 # ==================================
-st.sidebar.title("⚙️ Screening Mode")
+st.sidebar.title("⚙️ Controls")
 app_mode = st.sidebar.selectbox(
     "Choose Screening Method:",
-    ["Toddler Questionnaire", "Infant Cry Analysis", "Facial Image Analysis"]
+    ["Questionnaire", "Infant Cry Audio", "Facial Image"]
 )
 st.sidebar.markdown("---")
 st.sidebar.info(
-    "**Disclaimer:** This is a screening tool, not a diagnosis. "
+    "⚠️ Disclaimer: This is a screening tool, not a diagnostic tool. "
     "Consult a healthcare professional for formal evaluation."
 )
 
 # ==================================
-# Main App UI
+# Helper Functions
+# ==================================
+def extract_mfcc(file_path, n_mfcc=40, max_len=200):
+    audio, sr = librosa.load(file_path, sr=22050)
+    mfcc = librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=n_mfcc)
+    mfcc = (mfcc - np.mean(mfcc)) / np.std(mfcc)
+    if mfcc.shape[1] < max_len:
+        pad_width = max_len - mfcc.shape[1]
+        mfcc = np.pad(mfcc, pad_width=((0,0),(0,pad_width)), mode='constant')
+    else:
+        mfcc = mfcc[:, :max_len]
+    return mfcc.T[np.newaxis, ...]
+
+# ==================================
+# Main App
 # ==================================
 st.title("🧠 Multi-Modal ASD Screening Assistant")
 
-# ==================================
-# TODDLER QUESTIONNAIRE
-# ==================================
-if app_mode == "Toddler Questionnaire":
+# ----------------------------
+# 1. Questionnaire Mode
+# ----------------------------
+if app_mode == "Questionnaire":
     st.header("Toddler Behaviour Questionnaire")
-    st.markdown("Fill the form below; results will be analyzed using the CSV/MLP model.")
+    st.markdown("Fill in the form below for analysis.")
 
-    with st.form(key='csv_form'):
+    with st.form(key='questionnaire_form'):
+        st.subheader("Behavioural Questions (A1-A10)")
         questions = {
             "A1": "Does your child look at you when you call their name?",
             "A2": "How easy is it to get eye contact with your child?",
-            "A3": "Does your child point to indicate wants?",
-            "A4": "Does your child point to share interest?",
+            "A3": "Does your child point to indicate that they want something?",
+            "A4": "Does your child point to share interest with you?",
             "A5": "Does your child pretend?",
-            "A6": "Does your child follow where you're looking?",
-            "A7": "If a family member is upset, does your child try to comfort?",
-            "A8": "Describe your child's first words",
+            "A6": "Does your child follow where you are looking?",
+            "A7": "If someone is upset, does your child show signs of comfort?",
+            "A8": "Would you describe your child's first words as meaningful?",
             "A9": "Does your child use simple gestures?",
             "A10": "Does your child stare at nothing with no purpose?"
         }
-        answers = {q: st.radio(q_text, ['Yes','No'], index=1, horizontal=True, key=q) for q, q_text in questions.items()}
+        answers = {k: 1 - st.radio(q, ('Yes', 'No'), index=1, horizontal=True, key=k) 
+                   for k,q in questions.items()}
 
-        age_mons = st.number_input("Age in Months", min_value=12, max_value=60, value=24)
-        sex = st.selectbox("Sex", ['m','f'])
-        jaundice = st.selectbox("Born with Jaundice?", ['yes','no'])
-        family_asd = st.selectbox("Family history of ASD?", ['yes','no'])
-        who_completed = st.selectbox("Who is completing the test?", ['family member','Health Care Professional','Self','Others'])
-        ethnicity = st.selectbox("Ethnicity", ['White European','Asian','Middle Eastern','Black','South Asian','Others','Hispanic','Latino','Mixed','Pacifica'])
+        st.subheader("Demographics")
+        age = st.number_input("Age in months", min_value=12, max_value=60, value=24)
+        sex = st.selectbox("Sex", ('m', 'f'))
+        jaundice = st.selectbox("Born with jaundice?", ('yes', 'no'))
+        family_asd = st.selectbox("Family member with ASD history?", ('yes', 'no'))
+        submit_btn = st.form_submit_button("Submit and Analyze")
 
-        submit_button = st.form_submit_button(label='Submit and Analyze')
+    if submit_btn:
+        # Prepare dataframe
+        df = pd.DataFrame([{**answers,
+                            "Age_Mons": age, "Sex": sex,
+                            "Jaundice": jaundice, "Family_ASD": family_asd}])
+        # Find a CSV/MLP model
+        csv_model_key = next((k for k in models.keys() if 'csv' in k or 'mlp' in k), None)
+        if csv_model_key:
+            model = models[csv_model_key]
+            # For simplicity, assume model input matches columns (or preprocessed separately)
+            try:
+                pred = model.predict(df.values)
+                confidence = float(pred[0][0])
+                if confidence > 0.5:
+                    st.error(f"Prediction: ASD Traits Likely (Confidence: {confidence:.2%})")
+                else:
+                    st.success(f"Prediction: ASD Traits Unlikely (Confidence: {1-confidence:.2%})")
+            except Exception as e:
+                st.error(f"Error predicting: {e}")
+        else:
+            st.warning("No CSV/Questionnaire model found.")
 
-    if submit_button:
-        with st.spinner("Analyzing questionnaire data..."):
-            data = {
-                'Age_Mons': age_mons, 'Sex': sex, 'Ethnicity': ethnicity,
-                'Jaundice': jaundice, 'Family_mem_with_ASD': family_asd,
-                'Who_completed_test': who_completed
-            }
-            # Convert Yes/No to 1/0
-            data.update({k: 1 if v=='Yes' else 0 for k,v in answers.items()})
-            df = pd.DataFrame([data])
-            # Simple preprocessing: convert categorical to numeric
-            df = pd.get_dummies(df)
-            # Align columns to model input (add missing columns as zeros)
-            input_cols = models['csv_model'].input_shape[1]
-            if df.shape[1] < input_cols:
-                for _ in range(input_cols - df.shape[1]):
-                    df[f'pad_{_}'] = 0
-            prediction = models['csv_model'].predict(df.values)
-            confidence = float(prediction[0][0])
-            if confidence > 0.5:
-                st.error(f"Prediction: ASD Traits Likely (Confidence: {confidence:.2%})")
-            else:
-                st.success(f"Prediction: ASD Traits Unlikely (Confidence: {1-confidence:.2%})")
-
-# ==================================
-# INFANT CRY ANALYSIS
-# ==================================
-elif app_mode == "Infant Cry Analysis":
+# ----------------------------
+# 2. Infant Cry Audio
+# ----------------------------
+elif app_mode == "Infant Cry Audio":
     st.header("Infant Cry Audio Analysis")
     st.markdown("Upload a `.wav` file of the infant's cry.")
-
-    uploaded_file = st.file_uploader("Choose a WAV file", type="wav")
+    uploaded_file = st.file_uploader("Upload Audio", type=["wav"])
     if uploaded_file:
-        st.audio(uploaded_file, format='audio/wav')
-        if st.button("Analyze Cry Audio"):
-            with st.spinner("Processing audio..."):
-                audio, sr = librosa.load(uploaded_file, sr=22050)
-                max_len = sr * 4  # 4 seconds
-                if len(audio) < max_len:
-                    audio = np.pad(audio, (0, max_len - len(audio)), 'constant')
-                else:
-                    audio = audio[:max_len]
-                mfcc = librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=40)
-                mfcc = (mfcc - np.mean(mfcc)) / np.std(mfcc)
-                mfcc = mfcc.T[np.newaxis, ...]  # reshape for model
-
-                prediction = models['audio_model'].predict(mfcc)
-                confidence = float(prediction[0][0])
+        st.audio(uploaded_file, format="audio/wav")
+        if st.button("Analyze Cry"):
+            temp_path = "temp.wav"
+            with open(temp_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            audio_model_key = next((k for k in models.keys() if 'audio' in k or 'rnn' in k), None)
+            if audio_model_key:
+                model = models[audio_model_key]
+                features = extract_mfcc(temp_path)
+                pred = model.predict(features)
+                confidence = float(pred[0][0])
                 if confidence > 0.5:
                     st.error(f"Prediction: ASD Traits Likely (Confidence: {confidence:.2%})")
                 else:
                     st.success(f"Prediction: ASD Traits Unlikely (Confidence: {1-confidence:.2%})")
+            else:
+                st.warning("No audio model found.")
+            os.remove(temp_path)
 
-# ==================================
-# FACIAL IMAGE ANALYSIS
-# ==================================
-elif app_mode == "Facial Image Analysis":
+# ----------------------------
+# 3. Facial Image Analysis
+# ----------------------------
+elif app_mode == "Facial Image":
     st.header("Facial Image Analysis")
-    st.markdown("Upload a facial photograph (`.jpg`, `.jpeg`, `.png`).")
-
-    uploaded_file = st.file_uploader("Choose an image", type=["jpg","jpeg","png"])
+    st.markdown("Upload a facial image (`.jpg`, `.jpeg`, `.png`).")
+    uploaded_file = st.file_uploader("Upload Image", type=["jpg","jpeg","png"])
     if uploaded_file:
         image = Image.open(uploaded_file)
-        st.image(image, caption='Uploaded Image', use_column_width=True)
-        if st.button("Analyze Facial Image"):
-            with st.spinner("Processing image..."):
+        st.image(image, caption="Uploaded Image", use_column_width=True)
+        if st.button("Analyze Image"):
+            image_model_key = next((k for k in models.keys() if 'image' in k or 'cnn' in k), None)
+            if image_model_key:
+                model = models[image_model_key]
                 img = image.resize((224,224))
-                img_array = np.array(img)/255.0
-                img_array = np.expand_dims(img_array, axis=0)
-                prediction = models['image_model'].predict(img_array)
-                confidence = float(prediction[0][0])
+                arr = tf.keras.preprocessing.image.img_to_array(img)/255.0
+                arr = np.expand_dims(arr, axis=0)
+                pred = model.predict(arr)
+                confidence = float(pred[0][0])
                 if confidence > 0.5:
                     st.error(f"Prediction: ASD Traits Likely (Confidence: {confidence:.2%})")
                 else:
                     st.success(f"Prediction: ASD Traits Unlikely (Confidence: {1-confidence:.2%})")
+            else:
+                st.warning("No image model found.")
