@@ -100,11 +100,10 @@ if app_mode == "Questionnaire":
             "A10": "Does your child stare at nothing with no purpose?"
         }
 
-        # Corrected: use a loop to generate the radio buttons
         answers = {}
         for key, question in questions.items():
             answer = st.radio(question, ('Yes', 'No'), index=1, horizontal=True, key=key)
-            answers[key] = 0 if answer == "Yes" else 1  # convert Yes=0, No=1
+            answers[key] = 0 if answer == "Yes" else 1  # Yes=0, No=1
 
         st.subheader("Demographics")
         age = st.number_input("Age in months", min_value=12, max_value=60, value=24)
@@ -115,35 +114,36 @@ if app_mode == "Questionnaire":
         submit_btn = st.form_submit_button("Submit and Analyze")
 
     if submit_btn:
-    # Prepare dataframe
-    df = pd.DataFrame([{
-        **answers,
-        "Age_Mons": age,
-        "Sex": sex,
-        "Jaundice": jaundice,
-        "Family_ASD": family_asd
-    }])
-    
-    # Convert categorical to numeric
-    df['Sex'] = df['Sex'].map({'m':0, 'f':1})
-    df['Jaundice'] = df['Jaundice'].map({'no':0, 'yes':1})
-    df['Family_ASD'] = df['Family_ASD'].map({'no':0, 'yes':1})
-    
-    # Find a CSV/MLP model
-    csv_model_key = next((k for k in models.keys() if 'csv' in k or 'mlp' in k), None)
-    if csv_model_key:
-        model = models[csv_model_key]
-        try:
-            pred = model.predict(df.values.astype(np.float32))  # ensure numeric
-            confidence = float(pred[0][0])
-            if confidence > 0.5:
-                st.error(f"Prediction: ASD Traits Likely (Confidence: {confidence:.2%})")
-            else:
-                st.success(f"Prediction: ASD Traits Unlikely (Confidence: {1-confidence:.2%})")
-        except Exception as e:
-            st.error(f"Error predicting: {e}")
-    else:
-        st.warning("No CSV/Questionnaire model found.")
+        # Prepare dataframe
+        df = pd.DataFrame([{
+            **answers,
+            "Age_Mons": age,
+            "Sex": sex,
+            "Jaundice": jaundice,
+            "Family_ASD": family_asd
+        }])
+        
+        # Convert categorical to numeric
+        df['Sex'] = df['Sex'].map({'m':0, 'f':1})
+        df['Jaundice'] = df['Jaundice'].map({'no':0, 'yes':1})
+        df['Family_ASD'] = df['Family_ASD'].map({'no':0, 'yes':1})
+        
+        # Find a CSV/MLP model
+        csv_model_key = next((k for k in models.keys() if 'csv' in k or 'mlp' in k), None)
+        if csv_model_key:
+            model = models[csv_model_key]
+            try:
+                pred = model.predict(df.values.astype(np.float32))
+                confidence = float(pred[0][0])
+                if confidence > 0.5:
+                    st.error(f"Prediction: ASD Traits Likely (Confidence: {confidence:.2%})")
+                else:
+                    st.success(f"Prediction: ASD Traits Unlikely (Confidence: {1-confidence:.2%})")
+            except Exception as e:
+                st.error(f"Error predicting: {e}")
+        else:
+            st.warning("No CSV/Questionnaire model found.")
+
 
 
 
