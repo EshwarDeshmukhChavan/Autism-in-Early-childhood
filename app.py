@@ -99,26 +99,33 @@ if app_mode == "Questionnaire":
             "A9": "Does your child use simple gestures?",
             "A10": "Does your child stare at nothing with no purpose?"
         }
-        answers = {k: 1 - st.radio(q, ('Yes', 'No'), index=1, horizontal=True, key=k) 
-                   for k,q in questions.items()}
+
+        # Corrected: use a loop to generate the radio buttons
+        answers = {}
+        for key, question in questions.items():
+            answer = st.radio(question, ('Yes', 'No'), index=1, horizontal=True, key=key)
+            answers[key] = 0 if answer == "Yes" else 1  # convert Yes=0, No=1
 
         st.subheader("Demographics")
         age = st.number_input("Age in months", min_value=12, max_value=60, value=24)
         sex = st.selectbox("Sex", ('m', 'f'))
         jaundice = st.selectbox("Born with jaundice?", ('yes', 'no'))
         family_asd = st.selectbox("Family member with ASD history?", ('yes', 'no'))
+
         submit_btn = st.form_submit_button("Submit and Analyze")
 
     if submit_btn:
         # Prepare dataframe
         df = pd.DataFrame([{**answers,
-                            "Age_Mons": age, "Sex": sex,
-                            "Jaundice": jaundice, "Family_ASD": family_asd}])
+                            "Age_Mons": age,
+                            "Sex": sex,
+                            "Jaundice": jaundice,
+                            "Family_ASD": family_asd}])
+        
         # Find a CSV/MLP model
         csv_model_key = next((k for k in models.keys() if 'csv' in k or 'mlp' in k), None)
         if csv_model_key:
             model = models[csv_model_key]
-            # For simplicity, assume model input matches columns (or preprocessed separately)
             try:
                 pred = model.predict(df.values)
                 confidence = float(pred[0][0])
@@ -130,6 +137,7 @@ if app_mode == "Questionnaire":
                 st.error(f"Error predicting: {e}")
         else:
             st.warning("No CSV/Questionnaire model found.")
+
 
 # ----------------------------
 # 2. Infant Cry Audio
