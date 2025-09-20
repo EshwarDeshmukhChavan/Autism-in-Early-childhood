@@ -115,28 +115,34 @@ if app_mode == "Questionnaire":
         submit_btn = st.form_submit_button("Submit and Analyze")
 
     if submit_btn:
-        # Prepare dataframe
-        df = pd.DataFrame([{**answers,
-                            "Age_Mons": age,
-                            "Sex": sex,
-                            "Jaundice": jaundice,
-                            "Family_ASD": family_asd}])
-        
-        # Find a CSV/MLP model
-        csv_model_key = next((k for k in models.keys() if 'csv' in k or 'mlp' in k), None)
-        if csv_model_key:
-            model = models[csv_model_key]
-            try:
-                pred = model.predict(df.values)
-                confidence = float(pred[0][0])
-                if confidence > 0.5:
-                    st.error(f"Prediction: ASD Traits Likely (Confidence: {confidence:.2%})")
-                else:
-                    st.success(f"Prediction: ASD Traits Unlikely (Confidence: {1-confidence:.2%})")
-            except Exception as e:
-                st.error(f"Error predicting: {e}")
-        else:
-            st.warning("No CSV/Questionnaire model found.")
+    # Prepare dataframe
+    df = pd.DataFrame([{**answers,
+                        "Age_Mons": age,
+                        "Sex": sex,
+                        "Jaundice": jaundice,
+                        "Family_ASD": family_asd}])
+    
+    # Convert categorical to numeric
+    df['Sex'] = df['Sex'].map({'m':0, 'f':1})
+    df['Jaundice'] = df['Jaundice'].map({'no':0, 'yes':1})
+    df['Family_ASD'] = df['Family_ASD'].map({'no':0, 'yes':1})
+    
+    # Find a CSV/MLP model
+    csv_model_key = next((k for k in models.keys() if 'csv' in k or 'mlp' in k), None)
+    if csv_model_key:
+        model = models[csv_model_key]
+        try:
+            pred = model.predict(df.values.astype(np.float32))  # ensure numeric
+            confidence = float(pred[0][0])
+            if confidence > 0.5:
+                st.error(f"Prediction: ASD Traits Likely (Confidence: {confidence:.2%})")
+            else:
+                st.success(f"Prediction: ASD Traits Unlikely (Confidence: {1-confidence:.2%})")
+        except Exception as e:
+            st.error(f"Error predicting: {e}")
+    else:
+        st.warning("No CSV/Questionnaire model found.")
+
 
 
 # ----------------------------
