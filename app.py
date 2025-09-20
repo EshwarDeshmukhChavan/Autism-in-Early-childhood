@@ -21,7 +21,7 @@ st.set_page_config(
 # ==================================
 MODEL_DIR = "models"
 # --- Define all paths for your specific models and preprocessors ---
-AUDIO_MODEL_PATH = os.path.join(MODEL_DIR, "asd_cnn_rnn_final.h5")
+AUDIO_MODEL_PATH = os.path.join(MODEL_DIR, "rnn_model_final.h5")
 IMAGE_MODEL_PATH = os.path.join(MODEL_DIR, "image_model_final.keras")
 CSV_MODEL_PATH = os.path.join(MODEL_DIR, "mlp_model_final.h5")
 AUDIO_SCALER_PATH = os.path.join(MODEL_DIR, "audio_scaler.pkl")
