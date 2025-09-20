@@ -20,10 +20,12 @@ st.set_page_config(
 # Constants & Asset Loading
 # ==================================
 MODEL_DIR = "models"
-# --- Define all paths for your specific models and preprocessors ---
+# --- ✅ UPDATED: Paths now reflect your final model filenames ---
 AUDIO_MODEL_PATH = os.path.join(MODEL_DIR, "rnn_model_final.h5")
 IMAGE_MODEL_PATH = os.path.join(MODEL_DIR, "image_model_final.keras")
 CSV_MODEL_PATH = os.path.join(MODEL_DIR, "mlp_model_final.h5")
+
+# --- ❗️ ESSENTIAL: These preprocessor files are required for the models to work ---
 AUDIO_SCALER_PATH = os.path.join(MODEL_DIR, "audio_scaler.pkl")
 CSV_SCALER_PATH = os.path.join(MODEL_DIR, "csv_scaler.pkl")
 CSV_COLUMNS_PATH = os.path.join(MODEL_DIR, "csv_columns.joblib")
@@ -38,7 +40,7 @@ def load_assets():
         assets['image_model'] = tf.keras.models.load_model(IMAGE_MODEL_PATH)
         assets['csv_model'] = tf.keras.models.load_model(CSV_MODEL_PATH)
         
-        # Load preprocessors for audio and CSV models
+        # Load preprocessors
         assets['audio_scaler'] = joblib.load(AUDIO_SCALER_PATH)
         assets['csv_scaler'] = joblib.load(CSV_SCALER_PATH)
         assets['csv_columns'] = joblib.load(CSV_COLUMNS_PATH)
@@ -92,7 +94,6 @@ if app_mode == "Toddler Questionnaire":
             "A10": "Does your child stare at nothing with no apparent purpose?"
         }
         
-        # Invert logic: A "No" to a typical developmental milestone is a potential indicator (1)
         answers = {q_key: 1 - st.radio(q_text, ('Yes', 'No'), index=1, horizontal=True, key=q_key) for q_key, q_text in questions.items()}
 
         st.subheader("Demographic Information")
@@ -117,13 +118,11 @@ if app_mode == "Toddler Questionnaire":
             }
             raw_data.update(answers)
 
-            # Preprocessing pipeline
             input_df = pd.DataFrame([raw_data])
             processed_df = pd.get_dummies(input_df)
             final_df = processed_df.reindex(columns=assets['csv_columns'], fill_value=0)
             scaled_data = assets['csv_scaler'].transform(final_df)
             
-            # Prediction
             prediction = assets['csv_model'].predict(scaled_data)
             confidence = prediction[0][0]
 
@@ -134,11 +133,11 @@ if app_mode == "Toddler Questionnaire":
                 st.success(f"Prediction: ASD Traits Unlikely (Confidence: {1-confidence:.2%})")
 
 # ==============================================================================
-#                   UI FOR INFANT CRY ANALYSIS (asd_cnn_rnn_final)
+#                   UI FOR INFANT CRY ANALYSIS (rnn_model_final)
 # ==============================================================================
 elif app_mode == "Infant Cry Analysis":
     st.header("Infant Cry Audio Analysis")
-    st.markdown("Upload a `.wav` file of an infant's cry (up to 4 seconds). The `asd_cnn_rnn_final` model will analyze its acoustic properties.")
+    st.markdown("Upload a `.wav` file of an infant's cry (up to 4 seconds). The `rnn_model_final` model will analyze its acoustic properties.")
 
     uploaded_file = st.file_uploader("Choose a WAV file...", type="wav")
 
