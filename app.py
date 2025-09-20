@@ -108,58 +108,50 @@ if app_mode == "Questionnaire":
         st.subheader("Demographics")
         age = st.number_input("Age in months", min_value=12, max_value=60, value=24)
         sex = st.selectbox("Sex", ('m', 'f'))
-        ethnicity = st.selectbox("Ethnicity", ('White European', 'Asian', 'Middle Eastern', 
-                                               'Black', 'South Asian', 'Others', 'Hispanic', 
-                                               'Latino', 'Mixed', 'Pacifica'))
         jaundice = st.selectbox("Born with jaundice?", ('yes', 'no'))
         family_asd = st.selectbox("Family member with ASD history?", ('yes', 'no'))
-        who_completed = st.selectbox("Who is completing the test?", 
-                                     ('family member', 'Health Care Professional', 'Self', 'Others'))
+        ethnicity = st.selectbox("Ethnicity", ['White European', 'Asian', 'Middle Eastern', 'Black',
+                                               'South Asian', 'Others', 'Hispanic', 'Latino', 'Mixed', 'Pacifica'])
+        who_completed = st.selectbox("Who completed the test?", ['Family Member', 'Health Care Professional', 'Self', 'Others'])
 
         submit_btn = st.form_submit_button("Submit and Analyze")
 
     if submit_btn:
-        # Prepare dataframe
-        df = pd.DataFrame([{
-            **answers,
-            "Age_Mons": age,
-            "Sex": sex,
-            "Ethnicity": ethnicity,
-            "Jaundice": jaundice,
-            "Family_mem_with_ASD": family_asd,
-            "Who completed the test": who_completed
-        }])
-
-        # Add Qchat-10-Score (sum of answers)
-        df["Qchat-10-Score"] = sum(answers.values())
-
-        # One-hot encode categorical columns to match training
-        categorical_cols = ["Sex", "Ethnicity", "Jaundice", "Family_mem_with_ASD", "Who completed the test"]
-        df = pd.get_dummies(df, columns=categorical_cols)
-
-        # Reindex to match model columns
-        import joblib
-        csv_columns = joblib.load("models/csv_columns.joblib")  # should contain all columns your model expects except Case_No and Class/ASD Traits
-        df = df.reindex(columns=csv_columns, fill_value=0)
-
-        # Find CSV/MLP model
-        csv_model_key = next((k for k in models.keys() if 'csv' in k or 'mlp' in k), None)
-        if csv_model_key:
-            model = models[csv_model_key]
-            try:
-                pred = model.predict(df.values.astype(np.float32))
-                confidence = float(pred[0][0])
-                if confidence > 0.5:
-                    st.error(f"Prediction: ASD Traits Likely (Confidence: {confidence:.2%})")
-                else:
-                    st.success(f"Prediction: ASD Traits Unlikely (Confidence: {1-confidence:.2%})")
-            except Exception as e:
-                st.error(f"Error predicting: {e}")
+        if not csv_columns:
+            st.error("CSV columns file not found. Cannot process questionnaire input.")
         else:
-            st.warning("No CSV/Questionnaire model found.")
+            df = pd.DataFrame([{
+                **answers,
+                "Age_Mons": age,
+                "Sex": sex,
+                "Ethnicity": ethnicity,
+                "Jaundice": jaundice,
+                "Family_mem_with_ASD": family_asd,
+                "Who completed the test": who_completed
+            }])
 
+            # One-hot encode categorical columns
+            categorical_cols = ["Sex", "Ethnicity", "Jaundice", "Family_mem_with_ASD", "Who completed the test"]
+            df = pd.get_dummies(df, columns=categorical_cols, dtype=float)
 
+            # Reindex to match training columns
+            df = df.reindex(columns=csv_columns, fill_value=0)
 
+            # Find CSV/MLP model
+            csv_model_key = next((k for k in models.keys() if 'csv' in k or 'mlp' in k), None)
+            if csv_model_key:
+                model = models[csv_model_key]
+                try:
+                    pred = model.predict(df.values.astype(np.float32))
+                    confidence = float(pred[0][0])
+                    if confidence > 0.5:
+                        st.error(f"Prediction: ASD Traits Likely (Confidence: {confidence:.2%})")
+                    else:
+                        st.success(f"Prediction: ASD Traits Unlikely (Confidence: {1-confidence:.2%})")
+                except Exception as e:
+                    st.error(f"Error predicting: {e}")
+            else:
+                st.warning("No CSV/Questionnaire model found.")
 
 
 # ----------------------------
