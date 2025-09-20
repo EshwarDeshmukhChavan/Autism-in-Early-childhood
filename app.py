@@ -108,8 +108,13 @@ if app_mode == "Questionnaire":
         st.subheader("Demographics")
         age = st.number_input("Age in months", min_value=12, max_value=60, value=24)
         sex = st.selectbox("Sex", ('m', 'f'))
+        ethnicity = st.selectbox("Ethnicity", ('White European', 'Asian', 'Middle Eastern', 
+                                               'Black', 'South Asian', 'Others', 'Hispanic', 
+                                               'Latino', 'Mixed', 'Pacifica'))
         jaundice = st.selectbox("Born with jaundice?", ('yes', 'no'))
         family_asd = st.selectbox("Family member with ASD history?", ('yes', 'no'))
+        who_completed = st.selectbox("Who is completing the test?", 
+                                     ('family member', 'Health Care Professional', 'Self', 'Others'))
 
         submit_btn = st.form_submit_button("Submit and Analyze")
 
@@ -119,16 +124,25 @@ if app_mode == "Questionnaire":
             **answers,
             "Age_Mons": age,
             "Sex": sex,
+            "Ethnicity": ethnicity,
             "Jaundice": jaundice,
-            "Family_ASD": family_asd
+            "Family_mem_with_ASD": family_asd,
+            "Who completed the test": who_completed
         }])
-        
-        # Convert categorical to numeric
-        df['Sex'] = df['Sex'].map({'m':0, 'f':1})
-        df['Jaundice'] = df['Jaundice'].map({'no':0, 'yes':1})
-        df['Family_ASD'] = df['Family_ASD'].map({'no':0, 'yes':1})
-        
-        # Find a CSV/MLP model
+
+        # Add Qchat-10-Score (sum of answers)
+        df["Qchat-10-Score"] = sum(answers.values())
+
+        # One-hot encode categorical columns to match training
+        categorical_cols = ["Sex", "Ethnicity", "Jaundice", "Family_mem_with_ASD", "Who completed the test"]
+        df = pd.get_dummies(df, columns=categorical_cols)
+
+        # Reindex to match model columns
+        import joblib
+        csv_columns = joblib.load("models/csv_columns.joblib")  # should contain all columns your model expects except Case_No and Class/ASD Traits
+        df = df.reindex(columns=csv_columns, fill_value=0)
+
+        # Find CSV/MLP model
         csv_model_key = next((k for k in models.keys() if 'csv' in k or 'mlp' in k), None)
         if csv_model_key:
             model = models[csv_model_key]
