@@ -4,6 +4,7 @@ import librosa
 import tensorflow as tf
 import os
 import time
+from PIL import Image
 
 # ==================================
 # Page Configuration
@@ -37,12 +38,12 @@ def load_all_models():
     return models
 
 # --- Load models once and cache them ---
-with st.spinner("Warming up the AI models..."):
+with st.spinner("Loading AI models..."):
     models = load_all_models()
     model_names = list(models.keys())
 
 # ==================================
-# Feature Extraction
+# Feature Extraction Functions
 # ==================================
 def extract_mfcc(file_path, n_mfcc=40, max_len=200):
     """Extracts MFCC features from an audio file, matching the training process."""
@@ -50,21 +51,29 @@ def extract_mfcc(file_path, n_mfcc=40, max_len=200):
         audio, sr = librosa.load(file_path, sr=22050)
         mfcc = librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=n_mfcc)
         
-        # Normalize the features
+        # Normalize
         mfcc = (mfcc - np.mean(mfcc)) / np.std(mfcc)
 
-        # Pad or truncate to a fixed length
+        # Pad or truncate
         if mfcc.shape[1] < max_len:
             pad_width = max_len - mfcc.shape[1]
             mfcc = np.pad(mfcc, pad_width=((0, 0), (0, pad_width)), mode='constant')
         else:
             mfcc = mfcc[:, :max_len]
 
-        # Reshape for model input
         return mfcc.T[np.newaxis, ...]
     except Exception as e:
         st.error(f"Error processing audio file: {e}")
         return None
+
+
+def preprocess_image(img, target_size=(128, 128)):
+    """Preprocess image file for CNN input."""
+    img = img.resize(target_size)
+    img_array = np.array(img) / 255.0
+    if len(img_array.shape) == 2:  # grayscale
+        img_array = np.expand_dims(img_array, axis=-1)
+    return np.expand_dims(img_array, axis=0)
 
 # ==================================
 # Sidebar UI
@@ -75,75 +84,86 @@ selected_model_name = st.sidebar.selectbox("Choose a model for analysis", model_
 st.sidebar.markdown("---")
 st.sidebar.info(
     "**About this App:**\n"
-    "This tool uses deep learning to screen for potential ASD traits based on the acoustic features of an infant's cry. "
-    "It is an informational aid and not a medical diagnosis."
+    "This tool uses deep learning to screen for potential ASD traits. "
+    "It supports both audio (cry) and image-based models. "
+    "This is an **informational aid only, not a medical diagnosis.**"
 )
 
 # ==================================
 # Main Panel UI
 # ==================================
-st.title("🍼 Infant Cry ASD Screening Tool")
-st.markdown("Upload an infant cry `.wav` file, and the selected AI model will analyze it.")
+st.title("🍼 Infant Cry & Image ASD Screening Tool")
 
-# --- Two-column layout ---
+# --- Detect model type from its name ---
+is_audio_model = "audio" in selected_model_name.lower()
+is_image_model = "img" in selected_model_name.lower() or "image" in selected_model_name.lower()
+
 col1, col2 = st.columns([1, 1], gap="large")
 
 with col1:
-    st.header("📤 Upload Audio")
-    uploaded_file = st.file_uploader(
-        "Select a .wav file from your device", 
-        type=["wav"], 
-        label_visibility="collapsed"
-    )
+    st.header("📤 Upload Input")
 
-    if uploaded_file is not None:
-        st.audio(uploaded_file, format="audio/wav")
-        analyze_button = st.button("Analyze Cry", use_container_width=True, type="primary")
+    uploaded_file = None
+    if is_audio_model:
+        uploaded_file = st.file_uploader("Upload Cry Audio (.wav)", type=["wav"])
+        if uploaded_file: st.audio(uploaded_file, format="audio/wav")
+    elif is_image_model:
+        uploaded_file = st.file_uploader("Upload Infant Image", type=["jpg", "png", "jpeg"])
+        if uploaded_file: st.image(uploaded_file, caption="Uploaded Image", use_column_width=True)
+    else:
+        st.warning("Model type not detected. Please name your models with 'audio' or 'img'.")
+
+    analyze_button = st.button("🔍 Analyze", use_container_width=True, type="primary")
 
 with col2:
     st.header("📊 Analysis Result")
-    
-    # --- Logic for when the button is pressed ---
-    if uploaded_file and 'analyze_button' in locals() and analyze_button:
-        # Save temp file for librosa to read
-        temp_file_path = "temp.wav"
-        with open(temp_file_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
 
-        with st.spinner(f"Analyzing with '{selected_model_name}' model..."):
-            # Process and predict
-            features = extract_mfcc(temp_file_path)
-            
-            if features is not None:
-                model = models[selected_model_name]
-                prediction = model.predict(features)[0][0]
-                
-                # Determine label and confidence
-                is_asd = prediction > 0.5
-                confidence = prediction if is_asd else 1 - prediction
-                result_label = "ASD Traits Likely" if is_asd else "Typically Developing"
-                
-                # --- Display Results ---
-                time.sleep(1) # For a better UX feel
-                
-                if is_asd:
-                    st.metric(label="Prediction Result", value=result_label, delta=f"{confidence:.1%} Confidence", delta_color="inverse")
+    if uploaded_file and analyze_button:
+        with st.spinner(f"Analyzing with '{selected_model_name}'..."):
+            model = models[selected_model_name]
+
+            if is_audio_model:
+                # Save temp file
+                temp_file_path = "temp.wav"
+                with open(temp_file_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                features = extract_mfcc(temp_file_path)
+                os.remove(temp_file_path)
+
+                if features is not None:
+                    prediction = model.predict(features)[0][0]
                 else:
-                    st.metric(label="Prediction Result", value=result_label, delta=f"{confidence:.1%} Confidence", delta_color="normal")
-                
-                # ✅ CORRECTED: Convert confidence to a standard Python float for Streamlit
-                st.progress(float(confidence))
-                
+                    prediction = None
+
+            elif is_image_model:
+                img = Image.open(uploaded_file).convert("RGB")
+                features = preprocess_image(img)
+                prediction = model.predict(features)[0][0]
+
+            # --- Show results ---
+            if prediction is not None:
+                is_asd = prediction > 0.5
+                confidence = float(prediction if is_asd else 1 - prediction)
+
+                # Big result card
+                if is_asd:
+                    st.error("🚨 ASD Traits Likely")
+                else:
+                    st.success("✅ Typically Developing")
+
+                # Confidence gauge
+                st.metric(
+                    label="Confidence",
+                    value=f"{confidence*100:.2f}%",
+                    delta=f"Raw Score: {prediction:.4f}"
+                )
+
+                st.progress(confidence)
+
                 with st.expander("More Details"):
                     st.write(f"- **Model Used:** `{selected_model_name}`")
-                    st.write(f"- **Raw Prediction Score:** `{prediction:.4f}`")
-                    st.write(f"- A score > 0.5 indicates a higher likelihood of ASD traits.")
-
-        # Clean up the temporary file
-        os.remove(temp_file_path)
+                    st.write(f"- **Prediction Raw Score:** `{prediction:.4f}`")
+                    st.write("Scores closer to **1.0** → ASD traits, closer to **0.0** → Normal.")
 
     else:
-        # --- Placeholder content before analysis ---
-        st.info("Upload an audio file and click 'Analyze Cry' to see the results here.")
-        
-
+        st.info("Upload a file and click **Analyze** to see results.")
