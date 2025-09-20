@@ -131,7 +131,8 @@ with col2:
                 else:
                     st.metric(label="Prediction Result", value=result_label, delta=f"{confidence:.1%} Confidence", delta_color="normal")
                 
-                st.progress(confidence)
+                # ✅ CORRECTED: Convert confidence to a standard Python float for Streamlit
+                st.progress(float(confidence))
                 
                 with st.expander("More Details"):
                     st.write(f"- **Model Used:** `{selected_model_name}`")
