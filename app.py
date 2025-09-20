@@ -116,11 +116,13 @@ if app_mode == "Questionnaire":
 
     if submit_btn:
     # Prepare dataframe
-    df = pd.DataFrame([{**answers,
-                        "Age_Mons": age,
-                        "Sex": sex,
-                        "Jaundice": jaundice,
-                        "Family_ASD": family_asd}])
+    df = pd.DataFrame([{
+        **answers,
+        "Age_Mons": age,
+        "Sex": sex,
+        "Jaundice": jaundice,
+        "Family_ASD": family_asd
+    }])
     
     # Convert categorical to numeric
     df['Sex'] = df['Sex'].map({'m':0, 'f':1})
@@ -142,6 +144,7 @@ if app_mode == "Questionnaire":
             st.error(f"Error predicting: {e}")
     else:
         st.warning("No CSV/Questionnaire model found.")
+
 
 
 
